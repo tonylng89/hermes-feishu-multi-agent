@@ -45,6 +45,22 @@ Agent LLM 回复: "@项目经理 帮我查一下获客数据"
 
 ## 前置条件
 
+### 兼容性
+
+| 项目 | 要求 |
+|------|------|
+| Hermes Agent | v0.11.0+（已测试） |
+| Python | 3.11+ |
+| 飞书应用 | 自建企业应用，已开通 IM 权限 |
+| 操作系统 | Linux / WSL2 / macOS |
+
+**补丁依赖的 feishu.py 锚点**（Hermes 升级时可能变化）：
+- `self._bot_name = settings.bot_name` — init 中的 bot 名称赋值
+- `def _is_self_sent_bot_message` — 自发消息检测方法
+- `def _build_outbound_payload` — 出站消息构建方法
+
+安装脚本会自动检测这些锚点，不兼容时会明确报错。
+
 ### 飞书应用权限
 
 每个 Agent 对应一个飞书机器人应用，需要开通以下权限并发布：
@@ -66,11 +82,26 @@ Agent LLM 回复: "@项目经理 帮我查一下获客数据"
 
 ## 安装
 
-### 1. 应用补丁
+### 一键安装（推荐）
+
+```bash
+git clone https://github.com/tonylng89/hermes-feishu-multi-agent.git
+cd hermes-feishu-multi-agent
+bash install.sh
+```
+
+脚本会自动：检测 Hermes 路径 → 兼容性检查 → 应用补丁 → 输出配置指引
+
+### 手动安装
+
+#### 1. 应用补丁
 
 ```bash
 # 找到你的 feishu.py 路径
 # 通常在 ~/.hermes/hermes-agent/gateway/platforms/feishu.py
+
+# 先检查兼容性（不修改文件）
+python patch/feishu_at_patch.py ~/.hermes/hermes-agent/gateway/platforms/feishu.py --check
 
 # 应用补丁（幂等，重复运行会自动跳过）
 python patch/feishu_at_patch.py ~/.hermes/hermes-agent/gateway/platforms/feishu.py
@@ -171,10 +202,11 @@ grep "Feishu-AT\|_convert_mentions" ~/.hermes/logs/gateway.log | tail -20
 ```
 hermes-feishu-multi-agent/
 ├── README.md                          # 本文档
+├── install.sh                         # 一键安装脚本
 ├── LICENSE                            # MIT
 ├── CLAUDE.md                          # AI 助手指引
 ├── patch/
-│   └── feishu_at_patch.py             # 核心补丁脚本
+│   └── feishu_at_patch.py             # 核心补丁脚本（含兼容性检查）
 ├── examples/
 │   ├── collaboration-protocol.md      # SOUL.md 协作协议模板
 │   └── .env.example                   # 环境变量配置示例

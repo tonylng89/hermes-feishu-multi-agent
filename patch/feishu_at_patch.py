@@ -12,9 +12,22 @@ Env var format:
   FEISHU_BOT_REGISTRY='{"AgentA": "ou_xxx", "AgentB": "ou_yyy"}'
 """
 
+import os
+import re
 import sys
 
 PATCH_MARKER = "# -- feishu-at-patch v1 --"
+
+# Anchor points that must exist in feishu.py for the patch to work.
+# If Hermes changes these method names, the patch will fail with a clear error.
+ANCHOR_POINTS = {
+    "self._bot_name = settings.bot_name": "Bot name initialization in __init__",
+    "def _is_self_sent_bot_message": "Self-sent message detection method",
+    "def _build_outbound_payload(self, content: str)": "Outbound message builder method",
+}
+
+# Tested compatible versions
+COMPATIBLE_VERSIONS = ["0.11.0"]
 
 REGISTRY_INIT_BLOCK = """
         --MARKER--
@@ -102,13 +115,67 @@ NEW_OUTBOUND_METHOD = '''    --MARKER--
 '''
 
 
-def patch_feishu(filepath: str) -> None:
-    with open(filepath, "r", encoding="utf-8") as f:
+def check_hermes_version(feishu_dir: str) -> str | None:
+    """Detect Hermes version from pyproject.toml or __init__.py."""
+    hermes_root = os.path.dirname(os.path.dirname(feishu_dir))
+    for rel in ["pyproject.toml", "hermes_cli/__init__.py"]:
+        path = os.path.join(hermes_root, rel)
+        if os.path.exists(path):
+            with open(path, encoding="utf-8") as f:
+                for line in f:
+                    m = re.search(r'version\s*=\s*["\']([^"\']+)["\']', line)
+                    if m:
+                        return m.group(1)
+    return None
+
+
+def check_compatibility(filepath: str) -> None:
+    """Verify feishu.py contains the anchor points the patch needs."""
+    with open(filepath, encoding="utf-8") as f:
         content = f.read()
 
+    print(f"Checking compatibility: {filepath}")
+
+    version = check_hermes_version(filepath)
+    if version:
+        print(f"  Hermes version: {version}")
+        if version in COMPATIBLE_VERSIONS:
+            print(f"  Status: ✓ tested compatible")
+        else:
+            print(f"  Status: ⚠ not in tested versions ({COMPATIBLE_VERSIONS})")
+            print(f"  The patch may still work — it depends on code structure, not version.")
+    else:
+        print("  Hermes version: unknown")
+
+    missing = []
+    for anchor, desc in ANCHOR_POINTS.items():
+        if anchor in content:
+            print(f"  ✓ Found: {desc}")
+        else:
+            print(f"  ✗ Missing: {desc}")
+            print(f"    Expected: {anchor}")
+            missing.append(anchor)
+
+    if missing:
+        print(f"\nError: {len(missing)} anchor point(s) not found.")
+        print("This usually means your Hermes version has changed the feishu.py structure.")
+        print("Check https://github.com/tonylng89/hermes-feishu-multi-agent for updates.")
+        sys.exit(1)
+
     if PATCH_MARKER in content:
-        print("Patch already applied. Skipping.")
+        print("\nPatch already applied. Skipping.")
+        sys.exit(0)
+
+    print("\n  ✓ All checks passed. Ready to patch.\n")
+
+
+def patch_feishu(filepath: str, check_only: bool = False) -> None:
+    check_compatibility(filepath)
+    if check_only:
         return
+
+    with open(filepath, "r", encoding="utf-8") as f:
+        content = f.read()
 
     lines = content.split("\n")
 
@@ -186,7 +253,9 @@ def patch_feishu(filepath: str) -> None:
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 2:
-        print(f"Usage: {sys.argv[0]} /path/to/feishu.py")
+    if len(sys.argv) < 2 or len(sys.argv) > 3:
+        print(f"Usage: {sys.argv[0]} /path/to/feishu.py [--check]")
+        print(f"  --check  Verify compatibility without applying the patch")
         sys.exit(1)
-    patch_feishu(sys.argv[1])
+    check_only = "--check" in sys.argv
+    patch_feishu(sys.argv[1], check_only=check_only)
